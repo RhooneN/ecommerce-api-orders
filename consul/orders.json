@@ -1,0 +1,8 @@
+{
+    "name": "orders",
+    "port": 8003,
+    "check": {
+      "http": "http://orders:8003/health/",
+      "interval": "10s"
+      }
+}
