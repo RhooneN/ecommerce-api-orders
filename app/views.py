@@ -15,6 +15,9 @@ from rest_framework.permissions import AllowAny
 from django.shortcuts import get_object_or_404
 from django.http import JsonResponse
 
+import logging
+logger = logging.getLogger(__name__)
+
 def health(request):
     return JsonResponse({"status": "ok"})
 
@@ -64,84 +67,86 @@ class OrderStatusUpdateView(APIView):
 class OrderListCreateView(generics.ListCreateAPIView):
     serializer_class = OrderSerializer
     permission_classes = [IsAuth]
-
+    
+    def setup(self, request, *args, **kwargs):
+        super().setup(request, *args, **kwargs)
+        self.auth_header = self.request.headers.get("Authorization")
+    
+        
     def get_queryset(self):
         if getattr(self.request.user, "is_admin", False) is True:
             return Order.objects.all()
         return Order.objects.filter(user_id=self.request.user.user_id)
 
     def create(self, request, *args, **kwargs):
-        user_id=self.request.user.user_id
-        username=self.request.user.username
-        
-
+        print("auth header 22", self.auth_header)
         try:
-            session_key = self.request.query_params.get('king')
-            if not session_key:
-                 session_key = self.request.session.session_key
-               
-            
-            cart_response = requests.get(
-                f"{settings.CART_SERVICE_URL}/cart/",
-                params={'king': session_key},
-                headers={'Authorization': f'Bearer {settings.CART_SERVICE_TOKEN}'},
-                timeout=5	
+             user_id=self.request.user.user_id
+             username=self.request.user.username
+             cart_response = requests.get(
+                    f"{settings.CART_SERVICE_URL}/cart/",
+                    headers={'Authorization':  f'{self.auth_header}'},
+                    timeout=(2, 5)	
             )
             
-            if cart_response.status_code != 200:
-                return Response(
+             if cart_response.status_code != 200:
+                    logger.error(f"Failed to fetch cart  because")
+                    return Response(
                     {"error": "Could not fetch cart"}, 
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
             
-            cart_data = cart_response.json()
+             cart_data = cart_response.json()
             
-            if not cart_data.get('items'):
-                return Response(
+             if not cart_data.get('items'):
+                    print("cart data", cart_data)
+                    return Response(
                     {"error": "Your cart is empty"}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
             # ✅ Create order
-            total = Decimal('0.00')
-            order = Order.objects.create(
-                user_id=self.request.user.user_id, total=total)
+             total = Decimal('0.00')
+             order = Order.objects.create(user_id=self.request.user.user_id, total=total)
           
-            # ✅ Create order items
-            if not order:
-                return Response(
-                    {"error": "order not loaded"}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            for item in cart_data['items']:
-                product_price = item["price"]
+                # ✅ Create order items
+             if not order:
+                    logger.error(f"Failed to create order  ")
+                    return Response(
+                     {"error": "order not loaded"}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+             for item in cart_data['items']:
+                    product_price = item["price"]
                 
-                order_item = OrderItem.objects.create(
+                    order_item = OrderItem.objects.create(
                     order=order,
                     product_id=item['product_id'],
                     quantity=item['quantity'],	
                     price=product_price
                 )
-            order.save()
-            requests.get(
-                f"{settings.CART_SERVICE_URL}/cart/empty",
-                params={'king': session_key},
-                headers={'Authorization': f'Bearer {settings.CART_SERVICE_TOKEN}'},
-                timeout=5	
+             order.save()
+             requests.get(
+                f"{settings.CART_SERVICE_URL}/cart/empty/",
+                headers={'Authorization': f'Bearer {self.auth_header}'},
+                timeout=(2, 5)	
             )
             
-            serializer = OrderSerializer(order, context={'request': request})
-            return Response(
+             serializer = OrderSerializer(order, context={'request': request})
+             
+             return Response(
                 {"message": "Order placed successfully", "order": serializer.data},
                 status=status.HTTP_201_CREATED
             )
             
         except requests.RequestException as e:
+            logger.error(f"Failed to create order  because{e}")
             return Response(
                 {"error": "Cart service unavailable", "details": str(e)},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
         except Exception as e:
+            logger.error(f"Failed to create order  because {str(e)}")
             return Response(
                 {"error": "Failed to create order", "details": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

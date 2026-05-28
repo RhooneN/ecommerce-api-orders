@@ -3,7 +3,6 @@ from django.db import models
 # ~ from service.models import Product
 
 class Order(models.Model):
-	# ~ user = models.OneToOneField(User, on_delete=models.CASCADE)
     user_id = models.IntegerField()
     username = models.CharField(max_length=60)
     transaction_id = models.CharField(max_length=255, unique=True, null=True, blank=True)
